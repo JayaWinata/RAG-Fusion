@@ -5,3 +5,4 @@ GEMINI.md
 temp.txt
 *.md
 notebooks/.deepeval
+!skripsi.md

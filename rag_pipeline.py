@@ -2,7 +2,6 @@ import torch
 import json
 import gc
 import os
-import pickle
 from qdrant_client import QdrantClient
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
 from langchain_qdrant import QdrantVectorStore
@@ -11,7 +10,6 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 from langchain_core.load import dumps, loads
 from langchain_core.documents import Document
-from langchain_community.retrievers import BM25Retriever
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, BitsAndBytesConfig
 
 from config.config import Config
@@ -51,8 +49,6 @@ PERTANYAAN:
             self.vectorstore = vectorstore
         else:
             self.setup_vectorstore()
-        
-        self.setup_bm25()
 
     def setup_environment(self):
         # Set environment variables for LangChain and others
@@ -132,18 +128,6 @@ PERTANYAAN:
             content_payload_key="page_content", # Ensure consistency with indexing
         )
 
-    def setup_bm25(self):
-        """Initializes BM25 for sparse retrieval."""
-        pickle_path = self.config.get('PICKLE_PATH', 'knowledge-base/medical_documents_enriched.pkl')
-        if os.path.exists(pickle_path):
-            with open(pickle_path, 'rb') as f:
-                docs = pickle.load(f)
-            self.bm25_retriever = BM25Retriever.from_documents(docs)
-            self.bm25_retriever.k = self.config.get('TOP_K', 3)
-        else:
-            print(f"Warning: Pickle file not found at {pickle_path}. BM25 disabled.")
-            self.bm25_retriever = None
-
     @staticmethod
     def format_docs(docs):
         # FIXED: Added Source tagging to help LLM distinguish between patient reports
@@ -153,9 +137,8 @@ PERTANYAAN:
             formatted.append(f"--- DOKUMEN {i+1} (Sumber: {source}) ---\n{doc.page_content}")
         return "\n\n".join(formatted)
 
-    def hybrid_search(self, query, k=3, filter_dict=None):
-        """Combines Vector Search and BM25."""
-        # 1. Vector Search
+    def retrieve(self, query, k=3, filter_dict=None):
+        """Performs Dense Retrieval (Vector Search)."""
         instruction = "Representasikan pertanyaan medis ini untuk pencarian rekam medis yang relevan: "
         if filter_dict:
             from qdrant_client.http import models as rest
@@ -164,30 +147,13 @@ PERTANYAAN:
                 for k, v in filter_dict.items() if v
             ]
             qdrant_filter = rest.Filter(must=must_conditions) if must_conditions else None
-            vector_docs = self.vectorstore.similarity_search(instruction + query, k=k, filter=qdrant_filter)
+            return self.vectorstore.similarity_search(instruction + query, k=k, filter=qdrant_filter)
         else:
-            vector_docs = self.vectorstore.similarity_search(instruction + query, k=k)
-
-        # 2. BM25 Search
-        if self.bm25_retriever:
-            bm25_docs = self.bm25_retriever.invoke(query)
-            if filter_dict:
-                # Manual filtering for BM25 since it doesn't support metadata filters natively
-                bm25_docs = [
-                    doc for doc in bm25_docs 
-                    if all(doc.metadata.get(mk) == mv for mk, mv in filter_dict.items())
-                ]
-            bm25_docs = bm25_docs[:k]
-        else:
-            bm25_docs = []
-
-        # 3. Ensemble (Deduplicate)
-        combined = {doc.page_content: doc for doc in vector_docs + bm25_docs}
-        return list(combined.values())[:k]
+            return self.vectorstore.similarity_search(instruction + query, k=k)
 
 class RAGBaseline(RAGPipelineBase):
-    def __init__(self, config=None):
-        super().__init__(config)
+    def __init__(self, config=None, llm=None, vectorstore=None):
+        super().__init__(config, llm, vectorstore)
         self.setup_generation_chain()
 
     def setup_generation_chain(self):
@@ -195,7 +161,7 @@ class RAGBaseline(RAGPipelineBase):
         self.generation_chain = self.prompt | self.llm | StrOutputParser()
 
     def run(self, query, filter_dict=None):
-        docs = self.hybrid_search(query, k=self.config.get('TOP_K', 3), filter_dict=filter_dict)
+        docs = self.retrieve(query, k=self.config.get('TOP_K', 3), filter_dict=filter_dict)
         formatted_context = self.format_docs(docs)
         answer = self.generation_chain.invoke({"context": formatted_context, "question": query})
         
@@ -206,8 +172,8 @@ class RAGBaseline(RAGPipelineBase):
         }
 
 class RAGFusion(RAGPipelineBase):
-    def __init__(self, config=None):
-        super().__init__(config)
+    def __init__(self, config=None, llm=None, vectorstore=None):
+        super().__init__(config, llm, vectorstore)
         self.top_n = self.config.get('TOP_K', 3)
         self.setup_fusion_pipeline()
         self.setup_generation_chain()
@@ -264,8 +230,8 @@ Berikan 3 variasi pertanyaan, satu per baris, tanpa angka.
         
         all_results = []
         for q in all_queries:
-            # Multi-query hybrid search
-            docs = self.hybrid_search(q, k=self.top_n * 2, filter_dict=filter_dict)
+            # Multi-query vector search
+            docs = self.retrieve(q, k=self.top_n * 2, filter_dict=filter_dict)
             all_results.append(docs)
                 
         fused_docs = self.reciprocal_rank_fusion(all_results)
