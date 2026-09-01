@@ -6,3 +6,5 @@ temp.txt
 *.md
 notebooks/.deepeval
 !skripsi.md
+*.zip
+!README.md
