@@ -2,8 +2,6 @@
 
 A thesis project implementing and evaluating two Retrieval-Augmented Generation (RAG) architectures—**Baseline RAG** and **RAG-Fusion**—for Indonesian medical document analysis. The system processes patient records, clinical notes, and nutritional assessments to answer complex clinical queries with high factual accuracy.
 
-> **Status**: Active research — results documented in `skripsi.md`
-
 ---
 
 ## Overview
@@ -92,74 +90,6 @@ playground/
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.10+
-- CUDA-enabled GPU (for local LLM inference)
-- Qdrant Cloud account (or local instance)
-- OpenAI API key (for query expansion & evaluation)
-- HuggingFace token (for gated models)
-- LangSmith account (optional, for tracing)
-
-### Installation
-
-```bash
-git clone <repository-url>
-cd playground
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-# Required
-OPENAI_API_KEY=sk-...
-HF_TOKEN=hf_...
-QDRANT_URL=https://your-cluster.qdrant.io
-QDRANT_API_KEY=...
-LANGSMITH_API_KEY=lsv2_...  # Optional
-
-# Optional (defaults shown)
-LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-LANGSMITH_PROJECT=skripsi_fixed
-```
-
-### Pipeline Execution
-
-Run each stage in order:
-
-```bash
-# 1. Convert PDFs to Markdown (place PDFs in knowledge-base/raw/)
-python pdf_to_md_parser.py
-
-# 2. Clean parsed Markdown (removes parser artifacts)
-python text_cleaning.py
-
-# 3. Index documents to Qdrant (extracts metadata, chunks, embeds, uploads)
-python indexing_medical_v3.py
-
-# 4. Generate synthetic evaluation dataset (golden set)
-python synthetic_data_generator.py
-
-# 5. Run comparative evaluation (outputs JSONL with baseline + fusion results)
-python main.py
-
-# 6. Analyze results
-# Open notebooks/evaluation_deepeval.ipynb
-```
-
----
-
 ## Configuration
 
 Key settings in `config/config.py`:
@@ -202,22 +132,6 @@ Evaluation runs in `notebooks/evaluation_deepeval.ipynb` with `AsyncConfig(max_c
 
 ---
 
-## Results Summary
-
-Run `main.py` to generate dated result files (e.g., `20260901_1430_rag_responses_dataset_k3.jsonl`). Each line contains:
-
-```json
-{
-  "question": "...",
-  "ground_truth": "...",
-  "chunk_metadata": [...],
-  "baseline": { "answer": "...", "ids": [...], "contexts": [...], "metadata": [...] },
-  "fusion": { "answer": "...", "ids": [...], "contexts": [...], "metadata": [...] }
-}
-```
-
-Compare metrics in the evaluation notebook.
-
 ### Comparative Metrics
 
 Evaluation results on the golden dataset (50 multi-hop samples):
@@ -230,7 +144,6 @@ Evaluation results on the golden dataset (50 multi-hop samples):
 | Generation | Faithfulness | 0.9460 | 0.9511 | +0.51% |
 | Generation | Answer Relevancy | 0.8273 | 0.8307 | +0.34% |
 
-> [!NOTE]
 > RAG-Fusion shows measurable improvement across all metrics, with the largest gains in **Contextual Precision (+11.66%)** and **MRR@3 (+7.33%)**, indicating that multi-query expansion + Reciprocal Rank Fusion significantly improves the ranking quality of retrieved medical documents. Generation metrics show smaller but consistent gains, suggesting both systems produce grounded and relevant answers, with RAG-Fusion having a slight edge.
 
 ---
@@ -242,9 +155,3 @@ Evaluation results on the golden dataset (50 multi-hop samples):
 - [Qdrant Vector Database](https://qdrant.tech/)
 - [Docling: Document Understanding](https://github.com/DS4SD/docling)
 - [LangChain Expression Language](https://python.langchain.com/docs/expression_language/)
-
----
-
-## License
-
-This project is part of a thesis (skripsi) at Universitas Brawijaya. See `skripsi.md` for full academic documentation in Indonesian.
